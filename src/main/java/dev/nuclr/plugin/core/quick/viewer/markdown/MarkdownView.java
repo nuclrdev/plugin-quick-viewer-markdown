@@ -21,9 +21,13 @@ import java.awt.BorderLayout;
 import java.awt.Desktop;
 import java.awt.Insets;
 import java.awt.Point;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.geom.Rectangle2D;
+import java.io.StringWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -34,12 +38,18 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.swing.BorderFactory;
+import javax.swing.JComponent;
 import javax.swing.JEditorPane;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
+import javax.swing.KeyStroke;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
 import javax.swing.text.Element;
@@ -103,6 +113,14 @@ public class MarkdownView extends JPanel {
 	private boolean widthSensitive;
 	private int lastRenderWidth = -1;
 
+	/** Markdown as handed to {@link #setMarkdown}, kept for "copy source". */
+	private String markdownSource = "";
+	/** HTML of the last render, kept for "copy as HTML" without a selection. */
+	private String renderedHtml = "";
+
+	private JMenuItem copyItem;
+	private JMenuItem copyHtmlItem;
+
 	public MarkdownView() {
 		super(new BorderLayout());
 
@@ -145,6 +163,8 @@ public class MarkdownView extends JPanel {
 			}
 		});
 
+		installContextMenu();
+
 		applyThemeColors();
 		setMarkdown("", null);
 	}
@@ -160,6 +180,7 @@ public class MarkdownView extends JPanel {
 	 */
 	public void setMarkdown(String markdown, Path sourceFile) {
 		this.sourceFile = sourceFile;
+		this.markdownSource = markdown != null ? markdown : "";
 		this.document = renderer.parse(markdown);
 		render(true);
 	}
@@ -273,6 +294,120 @@ public class MarkdownView extends JPanel {
 		}
 	}
 
+	// ── Context menu ────────────────────────────────────────────────────────────
+
+	/**
+	 * Builds the right-click menu. Registered with
+	 * {@link JComponent#setComponentPopupMenu} rather than a mouse listener so the
+	 * platform's own popup trigger and the keyboard Menu key both work.
+	 */
+	private void installContextMenu() {
+		JPopupMenu menu = new JPopupMenu();
+
+		copyItem = new JMenuItem("Copy");
+		copyItem.setAccelerator(KeyStroke.getKeyStroke("ctrl C"));
+		copyItem.addActionListener(e -> copySelectedText());
+		menu.add(copyItem);
+
+		copyHtmlItem = new JMenuItem("Copy as HTML");
+		copyHtmlItem.addActionListener(e -> copyHtml());
+		menu.add(copyHtmlItem);
+
+		JMenuItem copyMarkdownItem = new JMenuItem("Copy Markdown Source");
+		copyMarkdownItem.addActionListener(e -> copyMarkdownSource());
+		menu.add(copyMarkdownItem);
+
+		menu.addSeparator();
+
+		JMenuItem selectAllItem = new JMenuItem("Select All");
+		selectAllItem.setAccelerator(KeyStroke.getKeyStroke("ctrl A"));
+		selectAllItem.addActionListener(e -> {
+			editor.requestFocusInWindow();
+			editor.selectAll();
+		});
+		menu.add(selectAllItem);
+
+		menu.addPopupMenuListener(new PopupMenuListener() {
+			@Override
+			public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+				boolean selected = hasSelection();
+				copyItem.setEnabled(selected);
+				// Without a selection the whole document is copied, so say which it is.
+				copyHtmlItem.setText(selected ? "Copy Selection as HTML" : "Copy as HTML");
+			}
+
+			@Override
+			public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+			}
+
+			@Override
+			public void popupMenuCanceled(PopupMenuEvent e) {
+			}
+		});
+
+		editor.setComponentPopupMenu(menu);
+	}
+
+	private boolean hasSelection() {
+		return editor.getSelectionEnd() > editor.getSelectionStart();
+	}
+
+	/** Copies the selected text, without markup. */
+	public void copySelectedText() {
+		String text = editor.getSelectedText();
+		if (text != null && !text.isEmpty()) {
+			setClipboard(new StringSelection(text));
+		}
+	}
+
+	/**
+	 * Copies the rendered markup: the selection if there is one, otherwise the
+	 * whole document. Offered both as {@code text/html} and as plain text, so a
+	 * word processor pastes formatting and an editor pastes the tags.
+	 */
+	public void copyHtml() {
+		String html = hasSelection() ? selectionHtml() : renderedHtml;
+		if (html != null && !html.isEmpty()) {
+			setClipboard(new HtmlTransferable(html, html));
+		}
+	}
+
+	/**
+	 * Copies the Markdown source of the whole file. The selection is not honoured:
+	 * the rendered document carries no mapping back to source offsets, so there is
+	 * no way to tell which part of the source a highlighted run came from.
+	 */
+	public void copyMarkdownSource() {
+		if (!markdownSource.isEmpty()) {
+			setClipboard(new StringSelection(markdownSource));
+		}
+	}
+
+	/** Serialises the selected range back to an HTML fragment. */
+	private String selectionHtml() {
+		int start = editor.getSelectionStart();
+		int end = editor.getSelectionEnd();
+		StringWriter out = new StringWriter();
+		try {
+			editor.getEditorKit().write(out, editor.getDocument(), start, end - start);
+			return out.toString();
+		} catch (Exception e) {
+			log.debug("Could not serialise the selection as HTML", e);
+			// Fall back to the plain text rather than putting nothing on the clipboard.
+			String text = editor.getSelectedText();
+			return text != null ? MarkdownRenderer.escape(text) : "";
+		}
+	}
+
+	private void setClipboard(Transferable contents) {
+		try {
+			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(contents, null);
+		} catch (Exception e) {
+			// Another application can hold the clipboard; nothing useful to do here.
+			log.warn("Could not write to the clipboard", e);
+		}
+	}
+
 	// ── Rendering ───────────────────────────────────────────────────────────────
 
 	private void render(boolean resetScroll) {
@@ -285,6 +420,7 @@ public class MarkdownView extends JPanel {
 		MarkdownRenderer.Context ctx = new MarkdownRenderer.Context(theme, baseDir(), width, images);
 		MarkdownRenderer.Result result = renderer.render(document, ctx);
 		widthSensitive = result.widthSensitive();
+		renderedHtml = result.html();
 
 		Point position = resetScroll ? new Point(0, 0) : scrollPane.getViewport().getViewPosition();
 
