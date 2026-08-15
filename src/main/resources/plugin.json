@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "version": "${project.version}",
+  "platformSdkVersion": "${platform.sdk.version}",
+	"plugins": [
+		{
+			"class": "dev.nuclr.plugin.core.quick.viewer.markdown.MarkdownQuickViewProvider",
+			"type": "QuickView",
+			"id": "dev.nuclr.plugin.core.quickviewer.markdown",
+			"name": "Markdown Quick Viewer",
+			"version": "${project.version}",
+			"description": "Renders Markdown and README files as formatted documents.",
+			"author": "Nuclr Development Team",
+			"license": "Apache-2.0",
+			"website": "https://nuclr.dev",
+			"pageUrl": "https://nuclr.dev/plugins/core/markdown-quick-viewer.html",
+			"docUrl": "https://nuclr.dev/plugins/core/markdown-quick-viewer.html",
+			"developer": "Official",
+			"singleton": true,
+			"priority": 0
+		}
+	]
+}
