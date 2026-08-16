@@ -5,6 +5,11 @@ Commander's quick-view panel. Pure Swing: no Chromium, no JCEF, no JavaFX
 WebView — Markdown is parsed with [flexmark-java](https://github.com/vsch/flexmark-java)
 and painted by Swing's own `HTMLEditorKit`.
 
+![A README rendered in Nuclr Commander's quick-view panel](images/scr-1.jpg)
+
+*A `README.md` rendered in the left pane while the right pane browses the file
+system.*
+
 ## Supported syntax
 
 Headings, paragraphs, bold, italic, strikethrough, ordered/unordered/nested
