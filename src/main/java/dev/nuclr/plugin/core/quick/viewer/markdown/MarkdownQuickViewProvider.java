@@ -19,6 +19,7 @@ package dev.nuclr.plugin.core.quick.viewer.markdown;
 
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -46,6 +47,9 @@ public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
 
 	/** Markdown is text; anything past this is not a document worth rendering. */
 	private static final long MAX_FILE_SIZE = 8L * 1024 * 1024;
+
+	/** Read for a thumbnail: a page shows only the opening of any document. */
+	private static final int THUMBNAIL_BYTES = 32 * 1024;
 
 	private NuclrPluginContext context;
 	private MarkdownView view;
@@ -118,6 +122,39 @@ public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
 		}
 		show(markdown, resource.getPath(), cancelled);
 		return true;
+	}
+
+	@Override
+	public boolean supportsThumbnails() {
+		return true;
+	}
+
+	/**
+	 * The opening of the document as a page: parsed, so headings, lists and code
+	 * blocks keep their shape while the markup itself disappears.
+	 */
+	@Override
+	public BufferedImage thumbnail(NuclrResource resource, int maxWidth, int maxHeight, AtomicBoolean cancelled) {
+		if (maxWidth <= 0 || maxHeight <= 0 || !supports(resource)) {
+			return null;
+		}
+		try {
+			byte[] head;
+			try (InputStream in = resource.openInputStream()) {
+				head = in.readNBytes(THUMBNAIL_BYTES);
+			}
+			if (cancelled != null && cancelled.get()) {
+				return null;
+			}
+			// A cut through a multi-byte character decodes to one replacement mark at
+			// the end, which the page never reaches.
+			String markdown = stripBom(new String(head, StandardCharsets.UTF_8));
+			var lines = MarkdownPageLines.of(new MarkdownRenderer().parse(markdown));
+			return PageThumbnail.render(lines, maxWidth, maxHeight, cancelled);
+		} catch (Exception e) {
+			log.debug("No thumbnail for {}: {}", resource.getName(), e.toString());
+			return null;
+		}
 	}
 
 	private void show(String markdown, Path source, AtomicBoolean cancelled) {

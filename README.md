@@ -78,6 +78,12 @@ java -cp "target/classes;$(cat cp.txt)" \
 With no argument it renders a built-in sample exercising every supported
 construct. The toolbar toggles dark mode and remote images.
 
+## Thumbnail
+
+The opening of the document as a page: parsed with flexmark, so the first heading becomes the title, headings stay headings, lists get bullets and code blocks keep their shape, while the markup disappears. Images and HTML blocks are left out. At icon sizes the lines are drawn as grey bars, the way a document preview looks.
+
+It implements the platform SDK 6.0.0 thumbnail methods, so plugins that want a picture of a file - attachment chips in AI Projects, for one - get it through Commander.
+
 ## Build
 
 ```bash
