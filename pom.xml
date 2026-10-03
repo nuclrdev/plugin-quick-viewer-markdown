@@ -13,7 +13,8 @@
 	<name>Nuclr Quick View - Markdown</name>
 
 	<properties>
-		<platform.sdk.version>6.0.0</platform.sdk.version>
+		<platform.sdk.version>6.1.0</platform.sdk.version>
+		<platform.sdk.min.version>6.0.0</platform.sdk.min.version>
 		<flexmark.version>0.64.8</flexmark.version>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.compiler.source>25</maven.compiler.source>
