@@ -158,8 +158,7 @@ public class MarkdownView extends JPanel {
 				// only when something genuinely cannot wrap, such as a wide code block.
 				ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 		scrollPane.setBorder(BorderFactory.createEmptyBorder());
-		scrollPane.getVerticalScrollBar().setUnitIncrement(18);
-		scrollPane.getHorizontalScrollBar().setUnitIncrement(18);
+		PrecisionWheelScroller.install(scrollPane);
 		add(scrollPane, BorderLayout.CENTER);
 
 		findBar = new FindBar(editor, scrollPane);
@@ -636,6 +635,9 @@ public class MarkdownView extends JPanel {
 	private void applyThemeColors() {
 		editor.setBackground(theme.background());
 		editor.setForeground(theme.foreground());
+		int scrollUnit = theme.scrollUnit();
+		scrollPane.getVerticalScrollBar().setUnitIncrement(scrollUnit);
+		scrollPane.getHorizontalScrollBar().setUnitIncrement(scrollUnit);
 		scrollPane.getViewport().setBackground(theme.background());
 		setBackground(theme.background());
 		findBar.applyTheme(theme);

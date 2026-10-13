@@ -195,6 +195,11 @@ public final class MarkdownTheme {
 		return tableHeaderBackground;
 	}
 
+	/** A comfortable wheel step scaled with the rendered body text. */
+	int scrollUnit() {
+		return pt(1.25f);
+	}
+
 	// ── CSS ─────────────────────────────────────────────────────────────────────
 
 	/**
