@@ -19,6 +19,7 @@ package dev.nuclr.plugin.core.quick.viewer.markdown;
 
 import java.awt.BorderLayout;
 import java.awt.Desktop;
+import java.awt.GraphicsEnvironment;
 import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Toolkit;
@@ -396,7 +397,7 @@ public class MarkdownView extends JPanel {
 		JPopupMenu menu = new JPopupMenu();
 
 		JMenuItem findItem = new JMenuItem("Find…");
-		findItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+		findItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F, menuShortcutMask()));
 		findItem.addActionListener(e -> openFind());
 		menu.add(findItem);
 		menu.addSeparator();
@@ -451,11 +452,20 @@ public class MarkdownView extends JPanel {
 	 * rather than reaching the host.
 	 */
 	private void installFindKeys() {
-		int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+		int menuMask = menuShortcutMask();
 		bindKey(KeyStroke.getKeyStroke(KeyEvent.VK_F, menuMask), "mdFind", this::openFind);
 		bindKey(KeyStroke.getKeyStroke(KeyEvent.VK_F3, 0), "mdFindNextMatch", findBar::next);
 		bindKey(KeyStroke.getKeyStroke(KeyEvent.VK_F3, KeyEvent.SHIFT_DOWN_MASK), "mdFindPreviousMatch",
 				findBar::previous);
+	}
+
+	/**
+	 * Cmd on macOS, Ctrl elsewhere. The headless toolkit throws instead of
+	 * answering, so tests on CI fall back to Ctrl.
+	 */
+	private static int menuShortcutMask() {
+		return GraphicsEnvironment.isHeadless() ? KeyEvent.CTRL_DOWN_MASK
+				: Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
 	}
 
 	private void bindKey(KeyStroke keyStroke, String name, Runnable action) {
