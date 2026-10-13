@@ -21,6 +21,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -36,9 +37,9 @@ import dev.nuclr.platform.plugin.QuickViewNuclrPlugin;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Quick-view provider for Markdown files. Reads and parses on the calling
- * background thread and hands the finished text to {@link MarkdownView} on the
- * EDT.
+ * Quick-view provider for Markdown files. Reads, parses and builds the Swing
+ * document on the calling background thread and hands the result to
+ * {@link MarkdownView} on the EDT.
  */
 @Slf4j
 public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
@@ -158,12 +159,45 @@ public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
 	}
 
 	private void show(String markdown, Path source, AtomicBoolean cancelled) {
+		// Parse and build the document here, off the EDT, which is left with layout
+		// only. Should the view fail to appear, it all happens on the EDT instead.
+		MarkdownView target = ensureView();
+		MarkdownView.Prepared prepared = target != null ? target.prepare(markdown, source) : null;
+		if (cancelled.get()) {
+			return;
+		}
 		SwingUtilities.invokeLater(() -> {
 			if (!cancelled.get()) {
 				panel();
-				view.setMarkdown(markdown, source);
+				if (prepared != null) {
+					view.show(prepared);
+				} else {
+					view.setMarkdown(markdown, source);
+				}
 			}
 		});
+	}
+
+	/**
+	 * The view, created on the EDT if need be: the host asks for {@link #panel()}
+	 * only after the first file has opened, and the document is prepared against
+	 * the view's theme and width.
+	 */
+	private MarkdownView ensureView() {
+		if (view == null) {
+			try {
+				if (SwingUtilities.isEventDispatchThread()) {
+					panel();
+				} else {
+					SwingUtilities.invokeAndWait(this::panel);
+				}
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			} catch (InvocationTargetException e) {
+				log.warn("Could not create the Markdown view", e.getCause());
+			}
+		}
+		return view;
 	}
 
 	@Override
@@ -212,7 +246,8 @@ public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
 
 	@Override
 	public boolean isFocused() {
-		return view != null && view.getEditorPane().hasFocus();
+		// The find field counts: it is part of the view.
+		return view != null && MarkdownView.hasFocusWithin(view);
 	}
 
 	@Override

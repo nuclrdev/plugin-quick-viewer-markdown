@@ -24,9 +24,12 @@ import java.awt.Point;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
+import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.KeyEvent;
 import java.awt.geom.Rectangle2D;
+import java.io.StringReader;
 import java.io.StringWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -37,6 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JEditorPane;
@@ -75,11 +79,12 @@ import lombok.extern.slf4j.Slf4j;
  * view.setTheme(MarkdownTheme.dark());
  * }</pre>
  *
- * <p>All methods must be called on the event dispatch thread. Reading the file
- * belongs to the caller and should happen on a background thread; parsing a
- * README-sized document costs a few milliseconds and runs inline, but
- * {@link MarkdownRenderer} is stateless, so it can be moved off the EDT later
- * without touching this class.
+ * <p>All methods must be called on the event dispatch thread, except
+ * {@link #prepare}. Reading the file belongs to the caller and should happen on
+ * a background thread; so should {@link #prepare}, which parses the Markdown and
+ * builds the Swing document. That is most of the work, and on macOS a sizeable
+ * README costs a noticeable pause when it runs on the EDT. {@link #show} then
+ * only swaps the finished document in.
  */
 @Slf4j
 public class MarkdownView extends JPanel {
@@ -99,13 +104,18 @@ public class MarkdownView extends JPanel {
 	private static final int WIDTH_EPSILON = 24;
 
 	private final MarkdownRenderer renderer = new MarkdownRenderer();
+	private final HTMLEditorKit kit = new HTMLEditorKit();
 	private final JEditorPane editor;
 	private final JScrollPane scrollPane;
+	private final FindBar findBar;
 	private final Timer resizeDebounce;
 
-	private MarkdownTheme theme = MarkdownTheme.fromUiManager();
+	// Volatile: read by prepare() off the EDT.
+	private volatile MarkdownTheme theme = MarkdownTheme.fromUiManager();
 	private MarkdownLinkHandler linkHandler;
-	private MarkdownImageResolver images = MarkdownImageResolver.localOnly();
+	private volatile MarkdownImageResolver images = MarkdownImageResolver.localOnly();
+	/** Last known content width, for prepare() to fit images to off the EDT. */
+	private volatile int widthHint = FALLBACK_WIDTH;
 	private RemoteImageResolver remoteImages;
 
 	private Node document;
@@ -125,7 +135,7 @@ public class MarkdownView extends JPanel {
 		super(new BorderLayout());
 
 		editor = new JEditorPane();
-		editor.setEditorKit(new HTMLEditorKit());
+		editor.setEditorKit(kit);
 		editor.setEditable(false);
 		// Leave HONOR_DISPLAY_PROPERTIES false (the default) so the stylesheet's
 		// fonts win over the component font, and leave W3C_LENGTH_UNITS false so a
@@ -152,11 +162,15 @@ public class MarkdownView extends JPanel {
 		scrollPane.getHorizontalScrollBar().setUnitIncrement(18);
 		add(scrollPane, BorderLayout.CENTER);
 
+		findBar = new FindBar(editor, scrollPane);
+		add(findBar, BorderLayout.NORTH);
+
 		resizeDebounce = new Timer(150, e -> refitToWidth());
 		resizeDebounce.setRepeats(false);
 		scrollPane.getViewport().addComponentListener(new ComponentAdapter() {
 			@Override
 			public void componentResized(ComponentEvent e) {
+				contentWidth(); // keeps widthHint current for prepare()
 				if (widthSensitive) {
 					resizeDebounce.restart();
 				}
@@ -164,6 +178,7 @@ public class MarkdownView extends JPanel {
 		});
 
 		installContextMenu();
+		installFindKeys();
 
 		applyThemeColors();
 		setMarkdown("", null);
@@ -179,10 +194,63 @@ public class MarkdownView extends JPanel {
 	 *                   relative links and images; may be {@code null}
 	 */
 	public void setMarkdown(String markdown, Path sourceFile) {
-		this.sourceFile = sourceFile;
-		this.markdownSource = markdown != null ? markdown : "";
-		this.document = renderer.parse(markdown);
-		render(true);
+		show(prepare(markdown, sourceFile));
+	}
+
+	/**
+	 * Parses {@code markdown} and builds the Swing document for it, using the
+	 * current theme and width. Safe to call on any thread, and meant for a
+	 * background one: this is the bulk of the cost of showing a file.
+	 *
+	 * @param markdown   Markdown source; {@code null} is treated as empty
+	 * @param sourceFile the {@code .md} file, as for {@link #setMarkdown}; may be {@code null}
+	 * @return the document, ready for {@link #show}
+	 */
+	public Prepared prepare(String markdown, Path sourceFile) {
+		String source = markdown != null ? markdown : "";
+		Node parsed = renderer.parse(source);
+		return new Prepared(source, sourceFile, parsed, build(parsed, sourceFile, widthHint));
+	}
+
+	/**
+	 * Shows a document made by {@link #prepare} and scrolls back to the top
+	 * without taking focus. Rebuilt here only if the theme, the image resolver or
+	 * the width it fitted images to changed while it was being prepared.
+	 */
+	public void show(Prepared prepared) {
+		this.sourceFile = prepared.sourceFile;
+		this.markdownSource = prepared.markdown;
+		this.document = prepared.document;
+		// The query belonged to the previous document.
+		findBar.close();
+
+		Built built = prepared.built;
+		if (built.theme() != theme || built.images() != images
+				|| (built.widthSensitive() && Math.abs(built.width() - contentWidth()) > WIDTH_EPSILON)) {
+			built = build(document, sourceFile, contentWidth());
+		}
+		install(built, true);
+	}
+
+	/** A parsed and built document, waiting to be handed to {@link #show}. */
+	public static final class Prepared {
+
+		private final String markdown;
+		private final Path sourceFile;
+		private final Node document;
+		private final Built built;
+
+		private Prepared(String markdown, Path sourceFile, Node document, Built built) {
+			this.markdown = markdown;
+			this.sourceFile = sourceFile;
+			this.document = document;
+			this.built = built;
+		}
+	}
+
+	/** One render of a document, with what it was rendered against. */
+	private record Built(HTMLDocument doc, String html, boolean widthSensitive, MarkdownTheme theme,
+			MarkdownImageResolver images, int width) {
 	}
 
 	/** Clears the view. */
@@ -267,6 +335,30 @@ public class MarkdownView extends JPanel {
 	}
 
 	/**
+	 * Opens the find bar, seeded with the selected text when it is a single line.
+	 */
+	public void openFind() {
+		String selected = editor.getSelectedText();
+		findBar.open(selected != null && selected.indexOf('\n') < 0 ? selected : null);
+	}
+
+	/** Hides the find bar, if it is showing. */
+	public void closeFind() {
+		findBar.close();
+	}
+
+	/** Whether keyboard focus is on {@code component} or anything inside it. */
+	static boolean hasFocusWithin(java.awt.Component component) {
+		java.awt.Component owner = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+		return owner != null && SwingUtilities.isDescendingFrom(owner, component);
+	}
+
+	/** The find bar; for tests. */
+	FindBar getFindBar() {
+		return findBar;
+	}
+
+	/**
 	 * Scrolls to the heading matching a GitHub-style anchor.
 	 *
 	 * @param anchor slug without the leading {@code #}
@@ -303,6 +395,12 @@ public class MarkdownView extends JPanel {
 	 */
 	private void installContextMenu() {
 		JPopupMenu menu = new JPopupMenu();
+
+		JMenuItem findItem = new JMenuItem("Find…");
+		findItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+		findItem.addActionListener(e -> openFind());
+		menu.add(findItem);
+		menu.addSeparator();
 
 		copyItem = new JMenuItem("Copy");
 		copyItem.setAccelerator(KeyStroke.getKeyStroke("ctrl C"));
@@ -346,6 +444,31 @@ public class MarkdownView extends JPanel {
 		});
 
 		editor.setComponentPopupMenu(menu);
+	}
+
+	/**
+	 * Ctrl+F (Cmd+F on macOS), F3 and Shift+F3 anywhere in the view, the find
+	 * field included. Esc is bound on the field itself, so it closes the bar
+	 * rather than reaching the host.
+	 */
+	private void installFindKeys() {
+		int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+		bindKey(KeyStroke.getKeyStroke(KeyEvent.VK_F, menuMask), "mdFind", this::openFind);
+		bindKey(KeyStroke.getKeyStroke(KeyEvent.VK_F3, 0), "mdFindNextMatch", findBar::next);
+		bindKey(KeyStroke.getKeyStroke(KeyEvent.VK_F3, KeyEvent.SHIFT_DOWN_MASK), "mdFindPreviousMatch",
+				findBar::previous);
+	}
+
+	private void bindKey(KeyStroke keyStroke, String name, Runnable action) {
+		getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(keyStroke, name);
+		getActionMap().put(name, new AbstractAction() {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				action.run();
+			}
+		});
 	}
 
 	private boolean hasSelection() {
@@ -414,22 +537,27 @@ public class MarkdownView extends JPanel {
 		if (document == null) {
 			return;
 		}
-		int width = contentWidth();
-		lastRenderWidth = width;
+		install(build(document, sourceFile, contentWidth()), resetScroll);
+	}
 
-		MarkdownRenderer.Context ctx = new MarkdownRenderer.Context(theme, baseDir(), width, images);
+	/**
+	 * Renders to HTML and reads it into a new, detached document. Touches no
+	 * component, so it runs on any thread; filling the document before it is
+	 * attached also spares the editor a change event per element.
+	 */
+	private Built build(Node document, Path sourceFile, int width) {
+		MarkdownTheme theme = this.theme;
+		MarkdownImageResolver images = this.images;
+		Path base = baseDir(sourceFile);
+
+		MarkdownRenderer.Context ctx = new MarkdownRenderer.Context(theme, base, width, images);
 		MarkdownRenderer.Result result = renderer.render(document, ctx);
-		widthSensitive = result.widthSensitive();
-		renderedHtml = result.html();
-
-		Point position = resetScroll ? new Point(0, 0) : scrollPane.getViewport().getViewPosition();
 
 		// A fresh document per render keeps the stylesheet local: rules added to a
 		// shared HTMLEditorKit stylesheet would leak into every later document.
-		HTMLDocument doc = (HTMLDocument) editor.getEditorKit().createDefaultDocument();
+		HTMLDocument doc = (HTMLDocument) kit.createDefaultDocument();
 		doc.getStyleSheet().addRule(theme.css());
 		doc.setPreservesUnknownTags(false);
-		Path base = baseDir();
 		if (base != null) {
 			try {
 				doc.setBase(base.toUri().toURL());
@@ -437,12 +565,27 @@ public class MarkdownView extends JPanel {
 				log.debug("Could not set the document base for {}", base, e);
 			}
 		}
-
-		editor.setDocument(doc);
-		editor.setText(result.html());
+		try {
+			kit.read(new StringReader(result.html()), doc, 0);
+		} catch (Exception e) {
+			log.warn("Could not build the Markdown document", e);
+		}
 		applyLineSpacing(doc);
+		return new Built(doc, result.html(), result.widthSensitive(), theme, images, width);
+	}
+
+	private void install(Built built, boolean resetScroll) {
+		lastRenderWidth = built.width();
+		widthSensitive = built.widthSensitive();
+		renderedHtml = built.html();
+
+		Point position = resetScroll ? new Point(0, 0) : scrollPane.getViewport().getViewPosition();
+
+		editor.setDocument(built.doc());
 		// setCaretPosition does not move focus; it only anchors the caret at the top.
 		editor.setCaretPosition(0);
+		// The highlights went with the old document.
+		findBar.contentChanged();
 
 		// Restore the scroll position after layout has run for the new document.
 		SwingUtilities.invokeLater(() -> {
@@ -455,7 +598,7 @@ public class MarkdownView extends JPanel {
 	 * Swing's CSS has no usable {@code line-height}, so comfortable leading is set
 	 * as a paragraph attribute across the whole document instead.
 	 */
-	private void applyLineSpacing(HTMLDocument doc) {
+	private static void applyLineSpacing(HTMLDocument doc) {
 		SimpleAttributeSet spacing = new SimpleAttributeSet();
 		StyleConstants.setLineSpacing(spacing, 0.22f);
 		doc.setParagraphAttributes(0, doc.getLength(), spacing, false);
@@ -473,10 +616,16 @@ public class MarkdownView extends JPanel {
 			return FALLBACK_WIDTH;
 		}
 		Insets insets = editor.getInsets();
-		return Math.max(160, viewport - insets.left - insets.right - 4);
+		int width = Math.max(160, viewport - insets.left - insets.right - 4);
+		widthHint = width;
+		return width;
 	}
 
 	private Path baseDir() {
+		return baseDir(sourceFile);
+	}
+
+	private static Path baseDir(Path sourceFile) {
 		if (sourceFile == null) {
 			return null;
 		}
@@ -489,6 +638,7 @@ public class MarkdownView extends JPanel {
 		editor.setForeground(theme.foreground());
 		scrollPane.getViewport().setBackground(theme.background());
 		setBackground(theme.background());
+		findBar.applyTheme(theme);
 	}
 
 	// ── Link navigation ─────────────────────────────────────────────────────────
