@@ -17,6 +17,8 @@
  */
 package dev.nuclr.plugin.core.quick.viewer.markdown;
 
+import static dev.nuclr.plugin.core.quick.viewer.markdown.Messages.tr;
+
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
@@ -154,7 +156,7 @@ public final class MarkdownRenderer {
 	public Node parse(String markdown) {
 		String source = markdown != null ? markdown : "";
 		if (source.length() > MAX_INPUT_CHARS) {
-			source = source.substring(0, MAX_INPUT_CHARS) + "\n\n*(truncated)*\n";
+			source = source.substring(0, MAX_INPUT_CHARS) + "\n\n*" + tr("render.truncated") + "*\n";
 		}
 		return parser.parse(source);
 	}

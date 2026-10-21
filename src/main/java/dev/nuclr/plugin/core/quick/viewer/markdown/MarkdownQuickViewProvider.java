@@ -17,6 +17,8 @@
  */
 package dev.nuclr.plugin.core.quick.viewer.markdown;
 
+import static dev.nuclr.plugin.core.quick.viewer.markdown.Messages.tr;
+
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.image.BufferedImage;
@@ -70,6 +72,9 @@ public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
 	@Override
 	public void preinit(NuclrPluginContext context) {
 		this.context = context;
+		if (context != null) {
+			Messages.use(context.getLocale());
+		}
 		this.theme = context != null ? context.getTheme() : null;
 	}
 
@@ -106,7 +111,7 @@ public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
 		currentCancelled = cancelled;
 
 		if (resource.getLength() > MAX_FILE_SIZE) {
-			show("*“" + resource.getName() + "” is too large to preview.*", null, cancelled);
+			show(tr("message.too.large", resource.getName()), null, cancelled);
 			return true;
 		}
 
@@ -115,7 +120,7 @@ public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
 			markdown = stripBom(new String(in.readAllBytes(), StandardCharsets.UTF_8));
 		} catch (Exception e) {
 			log.warn("Failed to read Markdown: {}", resource.getName(), e);
-			show("*Could not read this file: " + e.getMessage() + "*", null, cancelled);
+			show(tr("message.cannot.read", e.getMessage()), null, cancelled);
 			return true;
 		}
 		if (cancelled.get()) {
@@ -257,7 +262,7 @@ public class MarkdownQuickViewProvider implements QuickViewNuclrPlugin {
 
 	@Override
 	public String getWindowTitle() {
-		return "Quick View: " + (currentResource != null ? currentResource.getName() : "");
+		return tr("window.title", currentResource != null ? currentResource.getName() : "");
 	}
 
 	@Override

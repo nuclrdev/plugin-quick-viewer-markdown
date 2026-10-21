@@ -17,6 +17,8 @@
  */
 package dev.nuclr.plugin.core.quick.viewer.markdown;
 
+import static dev.nuclr.plugin.core.quick.viewer.markdown.Messages.tr;
+
 import java.awt.Color;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -71,10 +73,10 @@ final class FindBar extends JPanel {
 
 	private final JTextField query = new JTextField(18);
 	private final JLabel status = new JLabel(" ");
-	private final JToggleButton matchCase = button(new JToggleButton("Aa"), "Match case");
-	private final JButton previous = button(new JButton("▲"), "Previous match (Shift+Enter, Shift+F3)");
-	private final JButton next = button(new JButton("▼"), "Next match (Enter, F3)");
-	private final JButton close = button(new JButton("✕"), "Close (Esc)");
+	private final JToggleButton matchCase = button(new JToggleButton("Aa"), tr("find.match.case"));
+	private final JButton previous = button(new JButton("▲"), tr("find.previous"));
+	private final JButton next = button(new JButton("▼"), tr("find.next"));
+	private final JButton close = button(new JButton("✕"), tr("find.close"));
 
 	private final List<Match> matches = new ArrayList<>();
 	private final List<Object> highlights = new ArrayList<>();
@@ -91,7 +93,7 @@ final class FindBar extends JPanel {
 		this.scrollPane = scrollPane;
 		setVisible(false);
 
-		query.putClientProperty("JTextField.placeholderText", "Find…");
+		query.putClientProperty("JTextField.placeholderText", tr("find.placeholder"));
 		query.putClientProperty("JTextField.showClearButton", Boolean.TRUE);
 		query.getDocument().addDocumentListener(new DocumentListener() {
 			@Override
@@ -390,7 +392,7 @@ final class FindBar extends JPanel {
 		if (query.getText().isEmpty()) {
 			status.setText(" ");
 		} else if (miss) {
-			status.setText("No results");
+			status.setText(tr("find.no.results"));
 		} else {
 			status.setText((current + 1) + " / " + matches.size());
 		}

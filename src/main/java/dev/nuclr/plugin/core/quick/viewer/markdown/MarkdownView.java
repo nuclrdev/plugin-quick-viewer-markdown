@@ -17,6 +17,8 @@
  */
 package dev.nuclr.plugin.core.quick.viewer.markdown;
 
+import static dev.nuclr.plugin.core.quick.viewer.markdown.Messages.tr;
+
 import java.awt.BorderLayout;
 import java.awt.Desktop;
 import java.awt.GraphicsEnvironment;
@@ -396,28 +398,28 @@ public class MarkdownView extends JPanel {
 	private void installContextMenu() {
 		JPopupMenu menu = new JPopupMenu();
 
-		JMenuItem findItem = new JMenuItem("Find…");
+		JMenuItem findItem = new JMenuItem(tr("menu.find"));
 		findItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_F, menuShortcutMask()));
 		findItem.addActionListener(e -> openFind());
 		menu.add(findItem);
 		menu.addSeparator();
 
-		copyItem = new JMenuItem("Copy");
+		copyItem = new JMenuItem(tr("menu.copy"));
 		copyItem.setAccelerator(KeyStroke.getKeyStroke("ctrl C"));
 		copyItem.addActionListener(e -> copySelectedText());
 		menu.add(copyItem);
 
-		copyHtmlItem = new JMenuItem("Copy as HTML");
+		copyHtmlItem = new JMenuItem(tr("menu.copy.html"));
 		copyHtmlItem.addActionListener(e -> copyHtml());
 		menu.add(copyHtmlItem);
 
-		JMenuItem copyMarkdownItem = new JMenuItem("Copy Markdown Source");
+		JMenuItem copyMarkdownItem = new JMenuItem(tr("menu.copy.markdown"));
 		copyMarkdownItem.addActionListener(e -> copyMarkdownSource());
 		menu.add(copyMarkdownItem);
 
 		menu.addSeparator();
 
-		JMenuItem selectAllItem = new JMenuItem("Select All");
+		JMenuItem selectAllItem = new JMenuItem(tr("menu.select.all"));
 		selectAllItem.setAccelerator(KeyStroke.getKeyStroke("ctrl A"));
 		selectAllItem.addActionListener(e -> {
 			editor.requestFocusInWindow();
@@ -431,7 +433,7 @@ public class MarkdownView extends JPanel {
 				boolean selected = hasSelection();
 				copyItem.setEnabled(selected);
 				// Without a selection the whole document is copied, so say which it is.
-				copyHtmlItem.setText(selected ? "Copy Selection as HTML" : "Copy as HTML");
+				copyHtmlItem.setText(selected ? tr("menu.copy.selection.html") : tr("menu.copy.html"));
 			}
 
 			@Override
